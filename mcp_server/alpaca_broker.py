@@ -30,13 +30,18 @@ from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce
 from alpaca.trading.requests import GetOrdersRequest, MarketOrderRequest
 from databricks.sdk import WorkspaceClient
 
+
+# WorkspaceClient() is a Databricks SDK object and it has some methods to access Databricks secrets. We use it 
+# to fetch Alpaca API keys from Databricks secret scope.
 _w = WorkspaceClient()
 
 _SECRET_SCOPE = os.environ.get("ALPACA_SECRET_SCOPE", "database")
 _KEY_ID_SECRET_KEY = os.environ.get("ALPACA_KEY_ID_SECRET_KEY", "alpaca-key-id")
 _SECRET_KEY_SECRET_KEY = os.environ.get("ALPACA_SECRET_KEY_SECRET_KEY", "alpaca-secret-key")
 
-_trading_client: TradingClient | None = None
+# TradingClient is an Alpaca SDK object that habdles orders, positions, account info
+_trading_client: TradingClient | None = None 
+# StockHistoricalDataClient is an Alpaca SDK object that handles market data (quotes, historical prices)
 _data_client: StockHistoricalDataClient | None = None
 
 
@@ -70,13 +75,18 @@ def _get_data_client() -> StockHistoricalDataClient:
 def get_quote(symbol: str) -> dict:
     """
     Get the latest real quote for a stock ticker symbol from Alpaca's
-    market data API. Returns the bid/ask midpoint as `price`.
+    market data API. Returns the bid/ask midpoint as `price`. This is a
+    read-only operation and does not affect any account state. 
     """
-    symbol = symbol.strip().upper()
+    symbol = symbol.strip().upper() # ex: symbol= "aapl" -> "AAPL"
+
+    # quotes is a special Alpaca SDK object and behaves like a dict where you can
+    # look things up by symbol using square brackets, like quotes["AAPL"]. It contains the latest bid and ask prices, as well as a timestamp. 
     quotes = _get_data_client().get_stock_latest_quote(
         StockLatestQuoteRequest(symbol_or_symbols=symbol)
     )
     quote = quotes[symbol]
+    # get the midpoint of the bid and ask prices, rounded to 2 decimal places
     price = round((float(quote.bid_price) + float(quote.ask_price)) / 2, 2)
     return {
         "symbol": symbol,
@@ -87,16 +97,17 @@ def get_quote(symbol: str) -> dict:
 
 def place_order(account_id: str, symbol: str, side: str, quantity: float) -> dict:
     """
-    Place a real market order against the single configured Alpaca paper
-    trading account. `account_id` is accepted for signature compatibility
-    with the mock engine but is not used to select an account - Alpaca
-    paper trading is one account per API key pair.
+    Purpose: actually execute a trade. It's a write/action operation — it tells 
+    Alpaca "buy/sell this many shares of this symbol," and it has a real, permanent 
+    effect: cash balance changes, a new position appears (or an existing one changes),
+    and a new order record gets created in Alpaca's history.
     """
     symbol = symbol.strip().upper()
     side = side.strip().upper()
     quantity = float(quantity)
 
     if side not in ("BUY", "SELL"):
+        # so if side not in ("BUY", "SELL"), immediately stops the dunction and throws an error
         raise ValueError(f"side must be 'BUY' or 'SELL', got {side!r}")
     if quantity <= 0:
         raise ValueError(f"quantity must be positive, got {quantity!r}")
@@ -113,12 +124,20 @@ def place_order(account_id: str, symbol: str, side: str, quantity: float) -> dic
         side=OrderSide.BUY if side == "BUY" else OrderSide.SELL,
         time_in_force=time_in_force,
     )
+    # this is the actual call to Alpaca's API to submit the order and Alpaca 
+    # executes it against the real market prices. Alpaca
+    # responds with an SDK "Order" object, describing what happened — order ID, fill price, status, etc.
     order = _get_trading_client().submit_order(order_data=order_data)
     return _order_to_dict(order)
 
 
 def get_positions(account_id: str) -> list[dict]:
-    """Get all open positions in the Alpaca paper trading account."""
+    """Get all open positions in the Alpaca paper trading account. The final output is:
+    [
+        {"symbol": "AAPL", "quantity": 10.0, "avg_cost": 228.50, "updated_at": None},
+        {"symbol": "TSLA", "quantity": 3.0,  "avg_cost": 410.00, "updated_at": None},
+    ]
+"""
     positions = _get_trading_client().get_all_positions()
     return [
         {

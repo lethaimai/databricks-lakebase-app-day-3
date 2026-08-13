@@ -85,6 +85,8 @@ def _get_end_user_email() -> str:
     return w.current_user.me().user_name or 'zach@dataexpert.io'
 
 
+# FastMCP object is the main entrypoint for the MCP server. 
+# It handles incoming requests, routes them to the appropriate tool functions, and returns responses.
 mcp = FastMCP("alpaca-paper-trading")
 
 
@@ -100,7 +102,11 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         return response
 
-
+# mcp is the FastMCP object created earlier 
+# .tool is a decorator that FastMCP provides
+# When Python loads this file and hits @mcp.tool decorator followed by def get_quote(...), it 
+# does this behind the scenes: take this get_quote function and register it with the FastMCP server as a callable tool.
+# so that the AI agent can later discover and call it.
 @mcp.tool
 def get_quote(symbol: str) -> dict:
     """
